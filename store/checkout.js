@@ -8,7 +8,7 @@ export const useCheckoutStore = create(
       plan: null,
       setPlan: (plan) => set({ plan, addons: [], hosting: null, domain: null }),
 
-      // Hosting config (for kit-digital)
+      // Hosting config
       hosting: null,
       setHosting: (hosting) => set({ hosting }),
 
@@ -61,6 +61,45 @@ export const useCheckoutStore = create(
         return Math.round(total * 100) / 100
       },
 
+      // Save progress to Supabase (and localStorage via persist)
+      saveProgress: async () => {
+        const s = get()
+        const payload = {
+          user_id: s.user?.id || null,
+          state: {
+            plan:          s.plan,
+            hosting:       s.hosting,
+            domain:        s.domain,
+            addons:        s.addons,
+            currency:      s.currency,
+            lang:          s.lang,
+            promoCode:     s.promoCode,
+            promoDiscount: s.promoDiscount,
+          },
+        }
+        const res = await fetch('/api/orders/save-draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) throw new Error('Failed to save progress')
+        return res.json()
+      },
+
+      // Load progress from Supabase for a logged-in user
+      loadProgress: async (userId) => {
+        if (!userId) return
+        try {
+          const res  = await fetch(`/api/orders/save-draft?user_id=${encodeURIComponent(userId)}`)
+          const data = await res.json()
+          if (data.draft) {
+            set(state => ({ ...state, ...data.draft }))
+          }
+        } catch {
+          // silent — localStorage already has data
+        }
+      },
+
       // Reset
       reset: () => set({
         plan: null, hosting: null, domain: null, addons: [],
@@ -68,9 +107,19 @@ export const useCheckoutStore = create(
         promoCode: null, promoDiscount: 0,
       }),
     }),
-    { name: 'ntx-checkout', partialize: (s) => ({
-      plan: s.plan, hosting: s.hosting, domain: s.domain,
-      addons: s.addons, user: s.user, currency: s.currency, lang: s.lang,
-    })}
+    {
+      name: 'ntx-checkout',
+      partialize: (s) => ({
+        plan:          s.plan,
+        hosting:       s.hosting,
+        domain:        s.domain,
+        addons:        s.addons,
+        user:          s.user,
+        currency:      s.currency,
+        lang:          s.lang,
+        promoCode:     s.promoCode,
+        promoDiscount: s.promoDiscount,
+      }),
+    }
   )
 )

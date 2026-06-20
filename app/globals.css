@@ -1,34 +1,154 @@
 @import "tailwindcss";
 
+/* ── Design tokens ───────────────────────────────────────────── */
 :root {
+  --bg: #F7F6F2;
+  --surface: #FFFFFF;
+  --surface-2: #F0EFE9;
+  --border: #E5E3DC;
+  --text: #1A1A1A;
+  --text-2: #6B6963;
+  --text-3: #A8A49E;
+  --orange: #E8441E;
+  --orange-hover: #D03B18;
+  --orange-tint: #FFF8F6;
+  --green: #16A34A;
+  --red: #DC2626;
+  --blue: #2563EB;
+
+  /* legacy aliases kept for any old code */
   --ntx-orange: #E8441E;
-  --ntx-dark:   #111111;
-  --ntx-light:  #F5F5F0;
-  --ntx-border: #E5E5DD;
+  --ntx-dark: #1A1A1A;
+  --ntx-light: #F7F6F2;
+  --ntx-border: #E5E3DC;
 }
 
-* { box-sizing: border-box; }
+/* ── Reset ───────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { height: 100%; }
 
 body {
-  background: var(--ntx-light);
-  color: var(--ntx-dark);
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-manrope, 'Manrope'), -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Typography helpers ──────────────────────────────────────── */
+.label-caps {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ── Input base ──────────────────────────────────────────────── */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="tel"],
+input[type="number"],
+input[type="search"],
+select,
+textarea {
+  font-family: inherit;
+  font-size: 14px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 16px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 100%;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-3);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--orange);
+  box-shadow: 0 0 0 3px rgba(232, 68, 30, 0.1);
+}
+
+input.error,
+textarea.error {
+  border-color: var(--red);
+}
+
+input.error:focus,
+textarea.error:focus {
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ── Animations ──────────────────────────────────────────────── */
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 @keyframes fadeUp {
-  from { opacity: 0; transform: translateY(14px); }
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.fade-up { animation: fadeUp 0.35s ease forwards; }
 
 @keyframes fadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
-.fade-in { animation: fadeIn 0.3s ease forwards; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #D0D0C8; border-radius: 3px; }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+@keyframes drawCircle {
+  from { stroke-dashoffset: 283; }
+  to   { stroke-dashoffset: 0; }
+}
+
+@keyframes drawCheck {
+  from { stroke-dashoffset: 80; }
+  to   { stroke-dashoffset: 0; }
+}
+
+.slide-in { animation: slideInRight 0.25s ease both; }
+.fade-up  { animation: fadeUp 0.35s ease both; }
+.fade-in  { animation: fadeIn 0.3s ease both; }
+
+/* ── Spinner ─────────────────────────────────────────────────── */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.65s linear infinite;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.spinner-dark {
+  border-color: rgba(0,0,0,0.15);
+  border-top-color: var(--text);
+}
