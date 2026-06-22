@@ -5,8 +5,8 @@ import { useCheckoutStore } from '@/store/checkout'
 import { formatPrice, getFirstPaymentAmount } from '@/lib/data'
 import StepHeader from '@/components/checkout/StepHeader'
 import {
-  Shield, Download, Pen, Type, X, Check,
-  AlertCircle, Lock, Globe, CalendarDays, Hash
+  Shield, Pen, Type, Check,
+  AlertCircle, Lock, CalendarDays, Hash
 } from 'lucide-react'
 
 function generateContractNumber() {
@@ -731,32 +731,6 @@ export default function ContractPage() {
 
       {/* Actions */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* Download PDF */}
-        <button
-          onClick={handleDownloadPDF}
-          style={{
-            width: '100%',
-            padding: '13px 20px',
-            background: 'transparent',
-            border: '1.5px solid var(--border)',
-            borderRadius: 12,
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: 'pointer',
-            color: 'var(--text-2)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            transition: 'border-color 0.15s, color 0.15s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--orange)'; e.currentTarget.style.color = 'var(--orange)' }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-2)' }}
-        >
-          <Download size={15} />
-          {lang === 'es' ? 'Descargar contrato en PDF' : 'Download contract as PDF'}
-        </button>
-
         <div style={{ display: 'flex', gap: 10 }}>
           <button
             onClick={() => router.push('/checkout/review')}

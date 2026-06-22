@@ -181,48 +181,57 @@ export default function CheckoutLayout({ children }) {
 }
 
 function MobileBottomBar() {
-  const { lang, currency, getTotal } = useCheckoutStore()
+  const { lang, currency, getTotal, plan } = useCheckoutStore()
   const [open, setOpen] = useState(false)
-  const tr = useTranslation(lang)
   const total = getTotal()
+  const isPhased = !!(plan?.payment_schedule)
+  const firstPct = plan?.payment_schedule?.[0]?.pct || 100
+  const payingNow = isPhased ? Math.round(total * firstPct / 100 * 100) / 100 : total
 
-  const label = currency === 'USD'
-    ? `$${(total / 3.7).toFixed(2)}`
-    : `S/ ${total.toLocaleString('es-PE')}`
+  const fmt = (n) => currency === 'USD' ? `$${(n / 3.7).toFixed(2)}` : `S/ ${n.toLocaleString('es-PE')}`
 
   return (
     <>
       <div className="lg:hidden" style={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
+        bottom: 0, left: 0, right: 0,
         background: 'var(--surface)',
         borderTop: '1.5px solid var(--border)',
-        padding: '12px 20px',
+        padding: '10px 16px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         zIndex: 20,
+        gap: 12,
+        minHeight: 60,
       }}>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Total</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)' }}>{label}</div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', lineHeight: 1 }}>Total</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', lineHeight: 1.2, marginTop: 2, whiteSpace: 'nowrap' }}>
+            {fmt(total)}
+          </div>
+          {isPhased && (
+            <div style={{ fontSize: 10, color: 'var(--orange)', fontWeight: 600, marginTop: 1, whiteSpace: 'nowrap' }}>
+              Hoy: {fmt(payingNow)}
+            </div>
+          )}
         </div>
         <button
           onClick={() => setOpen(true)}
           style={{
-            padding: '10px 20px',
+            padding: '9px 16px',
             background: 'var(--surface-2)',
             border: '1.5px solid var(--border)',
             borderRadius: 10,
-            fontSize: 13,
+            fontSize: 12,
             fontWeight: 700,
             cursor: 'pointer',
             color: 'var(--text)',
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
           }}
         >
-          Ver resumen
+          {lang === 'es' ? 'Ver resumen' : 'Summary'}
         </button>
       </div>
 

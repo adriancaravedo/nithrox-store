@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useCheckoutStore } from '@/store/checkout'
 import StepHeader from '@/components/checkout/StepHeader'
 import { formatPrice } from '@/lib/data'
-import { FileText, Layers, Clock, StickyNote, ChevronRight, Check } from 'lucide-react'
+import { FileText, Layers, Clock, ChevronRight, Check, Tag } from 'lucide-react'
 
 const FEATURES_OPTIONS = {
   es: [
@@ -48,6 +48,7 @@ export default function CustomizePage() {
   const router = useRouter()
   const { lang, currency, plan, customization, setCustomization } = useCheckoutStore()
 
+
   // Redirect if plan doesn't need customize step
   useEffect(() => {
     if (!plan) { router.push('/checkout/plan'); return }
@@ -64,6 +65,13 @@ export default function CustomizePage() {
 
   const featureOpts = FEATURES_OPTIONS[lang] || FEATURES_OPTIONS.es
   const timelineOpts = TIMELINE_OPTIONS[lang] || TIMELINE_OPTIONS.es
+
+  // Live price
+  const basePrice = plan?.price_pen || 0
+  const currentTotal = basePrice + pagesExtra
+  const isPhased = !!(plan?.payment_schedule)
+  const firstPaymentPct = plan?.payment_schedule?.[0]?.pct || 100
+  const payingNow = isPhased ? Math.round(currentTotal * firstPaymentPct / 100 * 100) / 100 : currentTotal
 
   function toggleFeature(id) {
     setSelectedFeatures(prev =>
@@ -82,7 +90,6 @@ export default function CustomizePage() {
       pagesExtra,
       features: selectedFeatures,
       timeline: selectedTimeline,
-      notes,
     })
     router.push('/checkout/hosting')
   }
@@ -108,6 +115,43 @@ export default function CustomizePage() {
           ? `Cuéntanos qué necesitas para tu ${plan.name}. Más detalles = mejor resultado.`
           : `Tell us what you need for your ${plan.name}. More details = better results.`}
       />
+
+      {/* Live price card */}
+      <div style={{
+        background: 'var(--orange-tint)',
+        border: '1.5px solid rgba(232,68,30,0.25)',
+        borderRadius: 14,
+        padding: '14px 20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+        gap: 12,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Tag size={14} color="var(--orange)" />
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {lang === 'es' ? 'Precio final' : 'Final price'}
+            </div>
+            {pagesExtra > 0 && (
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1 }}>
+                {formatPrice(basePrice, currency)} + {formatPrice(pagesExtra, currency)} {lang === 'es' ? '(páginas extra)' : '(extra pages)'}
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 22, fontWeight: 900, color: 'var(--orange)', letterSpacing: '-0.02em' }}>
+            {formatPrice(currentTotal, currency)}
+          </div>
+          {isPhased && (
+            <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2, fontWeight: 600 }}>
+              {lang === 'es' ? `Pagas hoy: ${formatPrice(payingNow, currency)} (${firstPaymentPct}%)` : `Pay today: ${formatPrice(payingNow, currency)} (${firstPaymentPct}%)`}
+            </div>
+          )}
+        </div>
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
         {/* Section 1: Number of pages */}
@@ -211,33 +255,6 @@ export default function CustomizePage() {
           </div>
         </div>
 
-        {/* Section 4: Notes */}
-        <div style={{ background: 'var(--surface)', border: '1.5px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
-          <SectionTitle icon={<StickyNote size={14} />} title={lang === 'es' ? 'Brief del proyecto (opcional)' : 'Project brief (optional)'} subtitle={lang === 'es' ? 'Describe tu empresa, objetivos, referencias de diseño, colores de marca...' : 'Describe your company, goals, design references, brand colors...'} />
-          <div style={{ padding: '0 20px 20px' }}>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={4}
-              placeholder={lang === 'es'
-                ? 'Ej: Somos una empresa de ropa femenina en Lima. Queremos algo moderno, minimalista, en colores nude y negro. Referencia: Zara.com'
-                : 'Eg: We are a fashion company in Lima. We want something modern, minimalist, in nude and black colors. Reference: Zara.com'}
-              style={{
-                width: '100%',
-                padding: '12px 14px',
-                border: '1.5px solid var(--border)',
-                borderRadius: 10,
-                fontSize: 13,
-                fontFamily: 'inherit',
-                color: 'var(--text)',
-                background: 'var(--bg)',
-                outline: 'none',
-                resize: 'vertical',
-                lineHeight: 1.6,
-              }}
-            />
-          </div>
-        </div>
       </div>
 
       {/* Actions */}
