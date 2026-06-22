@@ -46,7 +46,7 @@ function LineItem({ label, value, secondary }) {
 
 export default function ReviewPage() {
   const router = useRouter()
-  const { lang, currency, plan, hosting, domain, addons, promoCode, promoDiscount, applyPromo, getTotal } = useCheckoutStore()
+  const { lang, currency, plan, hosting, domain, addons, customization, promoCode, promoDiscount, applyPromo, getTotal, kitDigitalOfferAccepted } = useCheckoutStore()
   const tr = useTranslation(lang)
 
   const [promoInput, setPromoInput] = useState(promoCode || '')
@@ -54,10 +54,12 @@ export default function ReviewPage() {
   const [promoError, setPromoError] = useState('')
   const [confirmed, setConfirmed] = useState(false)
 
+  const pagesExtra = customization?.pagesExtra || 0
   const subtotal = (() => {
     let t = plan ? plan.price_pen : 0
+    if (pagesExtra) t += pagesExtra
     addons.forEach(a => { t += a.price_pen })
-    if (hosting?.price_pen) t += hosting.price_pen
+    if (hosting && !hosting._noHosting && hosting.price_pen) t += hosting.price_pen
     return t
   })()
 
@@ -100,9 +102,24 @@ export default function ReviewPage() {
           <SectionCard title={lang === 'es' ? 'Plan seleccionado' : 'Selected plan'} onEdit={() => router.push('/checkout/plan')}>
             <LineItem
               label={plan.name}
-              secondary={plan.billing_label[lang] || plan.billing_label.es}
-              value={formatPrice(plan.price_pen, currency)}
+              secondary={plan.billing_label?.[lang] || plan.billing_label?.es || ''}
+              value={kitDigitalOfferAccepted && plan.id === 'kit-digital'
+                ? <span style={{ color: 'var(--green)', fontWeight: 800 }}>S/ 0.00</span>
+                : formatPrice(plan.price_pen, currency)
+              }
             />
+            {kitDigitalOfferAccepted && plan.id === 'kit-digital' && (
+              <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8, padding: '8px 12px', background: 'rgba(22,163,74,0.06)', borderRadius: 8, border: '1px solid rgba(22,163,74,0.15)' }}>
+                🎁 {lang === 'es' ? '1 mes gratis incluido. Después del primer mes: S/ 149/año.' : '1 free month included. After the first month: S/ 149/year.'}
+              </div>
+            )}
+            {pagesExtra > 0 && (
+              <LineItem
+                label={lang === 'es' ? 'Páginas adicionales' : 'Extra pages'}
+                secondary=""
+                value={`+ ${formatPrice(pagesExtra, currency)}`}
+              />
+            )}
           </SectionCard>
         )}
 
@@ -110,9 +127,12 @@ export default function ReviewPage() {
         {hosting && (
           <SectionCard title="Hosting" onEdit={() => router.push('/checkout/hosting')}>
             <LineItem
-              label={(hosting.name[lang] || hosting.name.es)}
-              secondary={`${hosting.disk} · ${hosting.emails} emails · ${hosting.databases} bases de datos`}
-              value={hosting.price_pen === 0 ? (lang === 'es' ? 'Incluido' : 'Included') : formatPrice(hosting.price_pen, currency)}
+              label={hosting._noHosting
+                ? (lang === 'es' ? 'Sin hosting' : 'No hosting')
+                : (hosting.name?.[lang] || hosting.name?.es || 'Hosting')
+              }
+              secondary={hosting._noHosting ? undefined : `${hosting.disk} · ${hosting.emails} emails · ${hosting.databases} bases de datos`}
+              value={hosting._noHosting ? '—' : hosting.price_pen === 0 ? (lang === 'es' ? 'Incluido' : 'Included') : formatPrice(hosting.price_pen, currency)}
             />
           </SectionCard>
         )}
@@ -134,7 +154,7 @@ export default function ReviewPage() {
             {addons.map(addon => (
               <LineItem
                 key={addon.id}
-                label={addon.name[lang] || addon.name.es}
+                label={typeof addon.name === 'object' ? (addon.name?.[lang] || addon.name?.es || addon.name) : addon.name}
                 secondary={billingLabel(addon.billing, lang)}
                 value={formatPrice(addon.price_pen, currency)}
               />

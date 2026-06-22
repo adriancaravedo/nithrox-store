@@ -73,12 +73,14 @@ export const useCheckoutStore = create(
 
       // Computed total (full plan price)
       getTotal: () => {
-        const { plan, addons, hosting, promoDiscount, customization } = get()
+        const { plan, addons, hosting, promoDiscount, customization, kitDigitalOfferAccepted } = get()
+        // Kit Digital free first month
+        if (plan?.id === 'kit-digital' && kitDigitalOfferAccepted) return 0
         let total = plan ? plan.price_pen : 0
         // Page extra cost for Corporativa/Ecommerce
         if (customization?.pagesExtra) total += customization.pagesExtra
         addons.forEach(a => { total += a.price_pen })
-        if (hosting && hosting.price_pen) total += hosting.price_pen
+        if (hosting && !hosting._noHosting && hosting.price_pen) total += hosting.price_pen
         if (promoDiscount > 0) total = total * (1 - promoDiscount / 100)
         return Math.round(total * 100) / 100
       },

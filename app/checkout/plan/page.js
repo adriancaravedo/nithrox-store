@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCheckoutStore } from '@/store/checkout'
 import { DEFAULT_PLANS, formatPrice } from '@/lib/data'
@@ -10,6 +10,15 @@ import { Check, Gift, X, Calendar } from 'lucide-react'
 export default function PlanPage() {
   const router = useRouter()
   const { lang, currency, plan: selectedPlan, setPlan, setKitDigitalOffer } = useCheckoutStore()
+  const [plans, setPlans] = useState(DEFAULT_PLANS)
+
+  // Load admin-configured plans from Supabase
+  useEffect(() => {
+    fetch('/api/store/config')
+      .then(r => r.json())
+      .then(d => { if (d.plans?.length) setPlans(d.plans) })
+      .catch(() => {})
+  }, [])
 
   const [showKitOffer, setShowKitOffer] = useState(false)
   const [pendingPlan, setPendingPlan] = useState(null)
@@ -44,12 +53,12 @@ export default function PlanPage() {
       />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 16 }}>
-        {DEFAULT_PLANS.map((plan, idx) => {
+        {plans.map((plan, idx) => {
           const isPopular  = plan.id === 'corporativa'
           const isSelected = selectedPlan?.id === plan.id
-          const features   = plan.features[lang] || plan.features.es
-          const billing    = plan.billing_label[lang] || plan.billing_label.es
-          const isPhased   = plan.billing === 'phases'
+          const features   = Array.isArray(plan.features) ? plan.features : (plan.features?.[lang] || plan.features?.es || [])
+          const billing    = plan.billing_label?.[lang] || plan.billing_label?.es || ''
+          const isPhased   = plan.billing === 'phases' || !!plan.payment_schedule
 
           return (
             <div

@@ -6,7 +6,7 @@ import { useTranslation } from '@/lib/i18n'
 import { Server, Globe, Package, Tag, ShoppingCart } from 'lucide-react'
 
 export default function OrderSummary() {
-  const { plan, hosting, domain, addons, currency, lang, promoCode, promoDiscount, applyPromo, getTotal, saveProgress } = useCheckoutStore()
+  const { plan, hosting, domain, addons, customization, currency, lang, promoCode, promoDiscount, applyPromo, getTotal, saveProgress, kitDigitalOfferAccepted } = useCheckoutStore()
   const tr = useTranslation(lang)
   const [promoInput, setPromoInput] = useState(promoCode || '')
   const [promoLoading, setPromoLoading] = useState(false)
@@ -14,10 +14,12 @@ export default function OrderSummary() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
+  const pagesExtra = customization?.pagesExtra || 0
   const subtotal = (() => {
     let t = plan ? plan.price_pen : 0
+    if (pagesExtra) t += pagesExtra
     addons.forEach(a => { t += a.price_pen })
-    if (hosting && hosting.price_pen) t += hosting.price_pen
+    if (hosting && !hosting._noHosting && hosting.price_pen) t += hosting.price_pen
     return t
   })()
 
@@ -88,7 +90,10 @@ export default function OrderSummary() {
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{plan.name}</div>
             <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2 }}>
-              {plan.billing_label[lang] || plan.billing_label.es}
+              {plan.billing_label?.[lang] || plan.billing_label?.es || ''}
+              {kitDigitalOfferAccepted && plan.id === 'kit-digital' && (
+                <span style={{ color: 'var(--green)', fontWeight: 700 }}> · 1 mes gratis</span>
+              )}
             </div>
           </div>
           <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--orange)', whiteSpace: 'nowrap' }}>
@@ -127,6 +132,15 @@ export default function OrderSummary() {
               </span>
             : formatPrice(domain.price_pen, currency)
           }
+        />
+      )}
+
+      {/* Pages extra */}
+      {pagesExtra > 0 && (
+        <SummaryRow
+          icon={<span style={{ fontSize: 13 }}>📄</span>}
+          label={lang === 'es' ? 'Páginas adicionales' : 'Extra pages'}
+          value={`+ ${formatPrice(pagesExtra, currency)}`}
         />
       )}
 
