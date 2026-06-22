@@ -149,6 +149,8 @@ export default function CheckoutLayout({ children }) {
           padding: 'clamp(24px, 5vw, 48px)',
         }}>
           {children}
+          {/* Spacer so fixed bottom bar doesn't overlap last element on mobile */}
+          {showPills && <div className="lg:hidden" style={{ height: 88 }} />}
         </main>
 
         {/* Order summary sidebar — hidden on thanks page */}

@@ -101,8 +101,13 @@ export default function OrderSummary() {
       {hosting && (
         <SummaryRow
           icon={<Server size={14} color="var(--text-2)" />}
-          label={`Hosting ${hosting.name[lang] || hosting.name.es}`}
-          value={hosting.price_pen === 0
+          label={hosting._noHosting
+            ? (lang === 'es' ? 'Sin hosting' : 'No hosting')
+            : `Hosting ${hosting.name?.[lang] || hosting.name?.es || ''}`
+          }
+          value={hosting._noHosting
+            ? <span style={{ fontSize: 11, color: 'var(--text-3)' }}>—</span>
+            : hosting.price_pen === 0
             ? <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--green)', background: 'rgba(22,163,74,0.1)', padding: '2px 8px', borderRadius: 999 }}>
                 {lang === 'es' ? 'Incluido' : 'Included'}
               </span>
@@ -135,7 +140,7 @@ export default function OrderSummary() {
             <SummaryRow
               key={addon.id}
               icon={<span style={{ fontSize: 13 }}>{addon.icon}</span>}
-              label={addon.name[lang] || addon.name.es}
+              label={typeof addon.name === 'object' ? (addon.name?.[lang] || addon.name?.es || addon.name) : addon.name}
               value={formatPrice(addon.price_pen, currency)}
             />
           ))}
