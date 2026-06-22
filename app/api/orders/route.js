@@ -35,6 +35,10 @@ export async function POST(request) {
         status: 'pending',
         payment_method,
         signature_url: signature_data_url || null,
+        client_name:    user_name    || null,
+        client_email:   user_email   || null,
+        client_phone:   user_phone   || null,
+        client_company: user_company || null,
       })
       .select('id')
       .single()

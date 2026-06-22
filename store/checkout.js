@@ -99,11 +99,24 @@ export const useCheckoutStore = create(
         return Math.round(total * first.pct / 100 * 100) / 100
       },
 
+      // Session ID for anonymous tracking — generated once per browser
+      sessionId: null,
+      initSessionId: () => {
+        if (typeof window === 'undefined') return
+        const stored = localStorage.getItem('ntx-sid')
+        if (stored) { set({ sessionId: stored }); return }
+        const id = crypto.randomUUID()
+        localStorage.setItem('ntx-sid', id)
+        set({ sessionId: id })
+      },
+
       // Save progress to Supabase (and localStorage via persist)
-      saveProgress: async () => {
+      saveProgress: async (currentStep) => {
         const s = get()
         const payload = {
-          user_id: s.user?.id || null,
+          user_id:      s.user?.id || null,
+          session_id:   s.sessionId || null,
+          current_step: currentStep || null,
           state: {
             plan:          s.plan,
             hosting:       s.hosting,

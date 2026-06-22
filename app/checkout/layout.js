@@ -1,5 +1,5 @@
 'use client'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { useCheckoutStore } from '@/store/checkout'
 import { Check, PanelRightOpen, PanelRightClose } from 'lucide-react'
@@ -24,8 +24,19 @@ const HIDDEN_FROM_STEPS = ['/checkout/thanks']
 export default function CheckoutLayout({ children }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { lang, setLang, currency, setCurrency, plan } = useCheckoutStore()
+  const { lang, setLang, currency, setCurrency, plan, saveProgress, initSessionId } = useCheckoutStore()
   const [summaryOpen, setSummaryOpen] = useState(true)
+
+  // Init anonymous session ID once on mount
+  useEffect(() => { initSessionId?.() }, [])
+
+  // Auto-save draft on every step navigation
+  useEffect(() => {
+    if (!plan) return
+    const step = ALL_STEPS.find(s => pathname.startsWith(s.path))
+    if (!step) return
+    saveProgress?.(step.id).catch(() => {})
+  }, [pathname, plan])
 
   // Hide step for Kit Digital (no customize needed)
   const STEPS = ALL_STEPS.filter(s => {

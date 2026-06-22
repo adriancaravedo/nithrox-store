@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server'
 export async function POST(request) {
   try {
     const body = await request.json()
-    const { user_id, state } = body
+    const { user_id, session_id, state, current_step } = body
 
     if (!state) {
       return NextResponse.json({ error: 'state is required' }, { status: 400 })
@@ -18,29 +18,44 @@ export async function POST(request) {
       { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } }
     )
 
-    const upsertPayload = {
+    const payload = {
       state,
       updated_at: new Date().toISOString(),
     }
+    if (current_step) payload.current_step = current_step
+    if (user_id) payload.user_id = user_id
+    if (session_id) payload.session_id = session_id
 
-    // user_id is optional (anonymous checkout progress)
-    if (user_id) upsertPayload.user_id = user_id
+    let result
+    if (user_id) {
+      // Logged-in user: upsert on user_id
+      result = await supabase
+        .from('order_drafts')
+        .upsert(payload, { onConflict: 'user_id' })
+        .select('id')
+        .single()
+    } else if (session_id) {
+      // Anonymous: upsert on session_id
+      result = await supabase
+        .from('order_drafts')
+        .upsert(payload, { onConflict: 'session_id' })
+        .select('id')
+        .single()
+    } else {
+      // No key — just insert
+      result = await supabase
+        .from('order_drafts')
+        .insert(payload)
+        .select('id')
+        .single()
+    }
 
-    const { data, error } = await supabase
-      .from('order_drafts')
-      .upsert(upsertPayload, {
-        onConflict: user_id ? 'user_id' : undefined,
-      })
-      .select('id')
-      .single()
-
-    if (error) {
-      console.error('order_drafts upsert error:', error.message)
-      // Return success so the UI doesn't show an error — draft saving is non-critical
+    if (result.error) {
+      console.error('order_drafts upsert error:', result.error.message)
       return NextResponse.json({ saved: true, draft_id: null })
     }
 
-    return NextResponse.json({ saved: true, draft_id: data?.id })
+    return NextResponse.json({ saved: true, draft_id: result.data?.id })
   } catch (err) {
     console.error('orders/save-draft error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
@@ -53,7 +68,7 @@ export async function GET(request) {
     const user_id = searchParams.get('user_id')
 
     if (!user_id) {
-      return NextResponse.json({ error: 'user_id is required' }, { status: 400 })
+      return NextResponse.json({ draft: null })
     }
 
     const cookieStore = await cookies()
@@ -65,7 +80,7 @@ export async function GET(request) {
 
     const { data, error } = await supabase
       .from('order_drafts')
-      .select('state, updated_at')
+      .select('state, updated_at, current_step')
       .eq('user_id', user_id)
       .order('updated_at', { ascending: false })
       .limit(1)
@@ -75,7 +90,7 @@ export async function GET(request) {
       return NextResponse.json({ draft: null })
     }
 
-    return NextResponse.json({ draft: data.state, updated_at: data.updated_at })
+    return NextResponse.json({ draft: data.state, updated_at: data.updated_at, current_step: data.current_step })
   } catch (err) {
     console.error('orders/save-draft GET error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
