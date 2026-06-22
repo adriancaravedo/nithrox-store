@@ -6,22 +6,34 @@ import { Check } from 'lucide-react'
 import OrderSummary from '@/components/checkout/OrderSummary'
 import { useTranslation } from '@/lib/i18n'
 
-const STEPS = [
-  { id: 'plan',     label: { es: 'Plan',     en: 'Plan'     }, path: '/checkout/plan'     },
-  { id: 'account',  label: { es: 'Cuenta',   en: 'Account'  }, path: '/checkout/account'  },
-  { id: 'hosting',  label: { es: 'Hosting',  en: 'Hosting'  }, path: '/checkout/hosting'  },
-  { id: 'domain',   label: { es: 'Dominio',  en: 'Domain'   }, path: '/checkout/domain'   },
-  { id: 'addons',   label: { es: 'Extras',   en: 'Extras'   }, path: '/checkout/addons'   },
-  { id: 'review',   label: { es: 'Revisión', en: 'Review'   }, path: '/checkout/review'   },
-  { id: 'contract', label: { es: 'Contrato', en: 'Contract' }, path: '/checkout/contract' },
-  { id: 'payment',  label: { es: 'Pago',     en: 'Payment'  }, path: '/checkout/payment'  },
+const ALL_STEPS = [
+  { id: 'plan',      label: { es: 'Plan',       en: 'Plan'      }, path: '/checkout/plan'      },
+  { id: 'account',   label: { es: 'Cuenta',     en: 'Account'   }, path: '/checkout/account'   },
+  { id: 'customize', label: { es: 'Proyecto',   en: 'Project'   }, path: '/checkout/customize' },
+  { id: 'hosting',   label: { es: 'Hosting',    en: 'Hosting'   }, path: '/checkout/hosting'   },
+  { id: 'domain',    label: { es: 'Dominio',    en: 'Domain'    }, path: '/checkout/domain'    },
+  { id: 'addons',    label: { es: 'Extras',     en: 'Extras'    }, path: '/checkout/addons'    },
+  { id: 'review',    label: { es: 'Resumen',    en: 'Review'    }, path: '/checkout/review'    },
+  { id: 'contract',  label: { es: 'Contrato',   en: 'Contract'  }, path: '/checkout/contract'  },
+  { id: 'payment',   label: { es: 'Pago',       en: 'Payment'   }, path: '/checkout/payment'   },
 ]
+
+// Thanks page is excluded from steps (no pill)
+const HIDDEN_FROM_STEPS = ['/checkout/thanks']
 
 export default function CheckoutLayout({ children }) {
   const pathname = usePathname()
   const router = useRouter()
-  const { lang, setLang, currency, setCurrency } = useCheckoutStore()
+  const { lang, setLang, currency, setCurrency, plan } = useCheckoutStore()
 
+  // Hide step for Kit Digital (no customize needed)
+  const STEPS = ALL_STEPS.filter(s => {
+    if (s.id === 'customize') return plan?.customize_step === true
+    return true
+  })
+
+  // Don't show step pills on thanks page
+  const showPills = !HIDDEN_FROM_STEPS.some(p => pathname.startsWith(p))
   const currentIndex = STEPS.findIndex(s => pathname.startsWith(s.path))
 
   return (
@@ -48,51 +60,54 @@ export default function CheckoutLayout({ children }) {
         </div>
 
         {/* Step pills */}
-        <nav style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, overflow: 'hidden' }}>
-          {STEPS.map((step, idx) => {
-            const isDone    = idx < currentIndex
-            const isCurrent = idx === currentIndex
-            return (
-              <button
-                key={step.id}
-                onClick={() => isDone && router.push(step.path)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '4px 12px',
-                  borderRadius: 999,
-                  fontSize: 12,
-                  fontWeight: 700,
-                  border: 'none',
-                  cursor: isDone ? 'pointer' : 'default',
-                  background: isCurrent
-                    ? 'var(--orange)'
-                    : isDone
-                    ? 'rgba(232,68,30,0.1)'
-                    : 'transparent',
-                  color: isCurrent
-                    ? 'white'
-                    : isDone
-                    ? 'var(--orange)'
-                    : 'var(--text-3)',
-                  transition: 'background 0.15s, color 0.15s',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {isDone
-                  ? <Check size={11} strokeWidth={3} />
-                  : <span style={{ fontSize: 11, opacity: 0.7 }}>{idx + 1}</span>
-                }
-                <span className="hidden md:inline">{step.label[lang] || step.label.es}</span>
-              </button>
-            )
-          })}
-        </nav>
+        {showPills && (
+          <nav style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, overflow: 'hidden' }}>
+            {STEPS.map((step, idx) => {
+              const isDone    = idx < currentIndex
+              const isCurrent = idx === currentIndex
+              return (
+                <button
+                  key={step.id}
+                  onClick={() => isDone && router.push(step.path)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '4px 12px',
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: 'none',
+                    cursor: isDone ? 'pointer' : 'default',
+                    background: isCurrent
+                      ? 'var(--orange)'
+                      : isDone
+                      ? 'rgba(232,68,30,0.1)'
+                      : 'transparent',
+                    color: isCurrent
+                      ? 'white'
+                      : isDone
+                      ? 'var(--orange)'
+                      : 'var(--text-3)',
+                    transition: 'background 0.15s, color 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {isDone
+                    ? <Check size={11} strokeWidth={3} />
+                    : <span style={{ fontSize: 11, opacity: 0.7 }}>{idx + 1}</span>
+                  }
+                  <span className="hidden md:inline">{step.label[lang] || step.label.es}</span>
+                </button>
+              )
+            })}
+          </nav>
+        )}
+
+        {!showPills && <div style={{ flex: 1 }} />}
 
         {/* Controls */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-          {/* Currency toggle */}
           <button
             onClick={() => setCurrency(currency === 'PEN' ? 'USD' : 'PEN')}
             style={{
@@ -108,8 +123,6 @@ export default function CheckoutLayout({ children }) {
           >
             {currency === 'PEN' ? 'S/' : '$'}
           </button>
-
-          {/* Language toggle */}
           <button
             onClick={() => setLang(lang === 'es' ? 'en' : 'es')}
             style={{
@@ -130,7 +143,6 @@ export default function CheckoutLayout({ children }) {
 
       {/* ── Two-panel body ───────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Main content */}
         <main style={{
           flex: 1,
           overflowY: 'auto',
@@ -139,23 +151,25 @@ export default function CheckoutLayout({ children }) {
           {children}
         </main>
 
-        {/* Order summary sidebar */}
-        <aside style={{
-          width: 320,
-          flexShrink: 0,
-          borderLeft: '1.5px solid var(--border)',
-          background: 'var(--surface)',
-          overflowY: 'auto',
-          display: 'none',
-        }}
-          className="lg:block"
-        >
-          <OrderSummary />
-        </aside>
+        {/* Order summary sidebar — hidden on thanks page */}
+        {showPills && (
+          <aside style={{
+            width: 320,
+            flexShrink: 0,
+            borderLeft: '1.5px solid var(--border)',
+            background: 'var(--surface)',
+            overflowY: 'auto',
+            display: 'none',
+          }}
+            className="lg:block"
+          >
+            <OrderSummary />
+          </aside>
+        )}
       </div>
 
       {/* Mobile bottom bar */}
-      <MobileBottomBar />
+      {showPills && <MobileBottomBar />}
 
       <style>{`
         @media (min-width: 1024px) {
@@ -212,22 +226,9 @@ function MobileBottomBar() {
         </button>
       </div>
 
-      {/* Mobile drawer */}
       {open && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 50,
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'flex-end',
-          }}
-        >
-          <div
-            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }}
-            onClick={() => setOpen(false)}
-          />
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)' }} onClick={() => setOpen(false)} />
           <div style={{
             position: 'relative',
             background: 'var(--surface)',
@@ -245,4 +246,3 @@ function MobileBottomBar() {
     </>
   )
 }
-

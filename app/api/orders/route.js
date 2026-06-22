@@ -6,7 +6,8 @@ export async function POST(request) {
     const body = await request.json()
     const {
       plan_id, plan_name, plan_price, addons, hosting, domain,
-      user_id, signature_data_url, payment_method,
+      user_id, user_name, user_email, user_phone, user_company,
+      signature_data_url, payment_method,
       total_pen, currency, lang,
     } = body
 
@@ -77,6 +78,60 @@ export async function POST(request) {
         status: 'pending',
       }).maybeSingle()
     }
+
+    // Sync deal + project to admin CRM (fire-and-forget, never blocks checkout)
+    // Resolve CRM IDs first (contact might have been created at registration)
+    ;(async () => {
+      try {
+        // Look up or resolve contact_id from user_id or email
+        let contact_id = null
+        let company_id = null
+
+        if (user_id || user_email) {
+          const { createClient } = await import('@supabase/supabase-js')
+          const sb = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL,
+            process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+          )
+          // Try finding contact by email
+          if (user_email) {
+            const { data: ct } = await sb
+              .from('contacts')
+              .select('id, company_id')
+              .eq('email', user_email)
+              .maybeSingle()
+            if (ct) { contact_id = ct.id; company_id = ct.company_id }
+          }
+          // If not found, sync-client creates it now
+          if (!contact_id && user_email) {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/crm/sync-client`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id, name: user_name, email: user_email, phone: user_phone, company: user_company, source: 'Tienda Online' }),
+            })
+            const crmData = await res.json()
+            contact_id = crmData.contact_id
+            company_id = crmData.company_id
+          }
+        }
+
+        await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/crm/sync-order`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contact_id, company_id,
+            order_id: orderId,
+            plan_name, plan_id,
+            addons: addons || [],
+            hosting, domain,
+            total_pen, currency, payment_method,
+            user_name, user_email,
+          }),
+        })
+      } catch (crmErr) {
+        console.error('[orders] CRM sync error (non-blocking):', crmErr)
+      }
+    })()
 
     return NextResponse.json({ orderId })
   } catch (err) {

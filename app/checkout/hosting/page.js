@@ -120,7 +120,7 @@ export default function HostingPage() {
       {/* Actions */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 32 }}>
         <button
-          onClick={() => router.push('/checkout/account')}
+          onClick={() => router.push(plan?.customize_step ? '/checkout/customize' : '/checkout/account')}
           style={{ padding: '14px 20px', background: 'transparent', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', color: 'var(--text-2)' }}
         >
           ← {lang === 'es' ? 'Atrás' : 'Back'}

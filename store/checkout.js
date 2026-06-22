@@ -6,7 +6,11 @@ export const useCheckoutStore = create(
     (set, get) => ({
       // Selected plan
       plan: null,
-      setPlan: (plan) => set({ plan, addons: [], hosting: null, domain: null }),
+      setPlan: (plan) => set({ plan, addons: [], hosting: null, domain: null, customization: null }),
+
+      // Plan customization (step 3 — only for Corporativa / Ecommerce)
+      customization: null,
+      setCustomization: (c) => set({ customization: c }),
 
       // Hosting config
       hosting: null,
@@ -28,15 +32,31 @@ export const useCheckoutStore = create(
       user: null,
       setUser: (user) => set({ user }),
 
-      // Contract signature
+      // Contract fields (DocuSign-level)
       signatureDataUrl: null,
       setSignature: (dataUrl) => set({ signatureDataUrl: dataUrl }),
       signedAt: null,
       setSignedAt: (date) => set({ signedAt: date }),
+      signerFullName: '',
+      setSignerFullName: (n) => set({ signerFullName: n }),
+      signerDni: '',
+      setSignerDni: (d) => set({ signerDni: d }),
+      contractNumber: null,
+      setContractNumber: (n) => set({ contractNumber: n }),
+      signerIp: null,
+      setSignerIp: (ip) => set({ signerIp: ip }),
+
+      // Kit Digital free month offer
+      kitDigitalOfferAccepted: false,
+      setKitDigitalOffer: (v) => set({ kitDigitalOfferAccepted: v }),
 
       // Order
       orderId: null,
       setOrderId: (id) => set({ orderId: id }),
+
+      // Payment method used (for thanks page)
+      paymentMethod: null,
+      setPaymentMethod: (m) => set({ paymentMethod: m }),
 
       // Currency
       currency: 'PEN',
@@ -51,14 +71,25 @@ export const useCheckoutStore = create(
       promoDiscount: 0,
       applyPromo: (code, discount) => set({ promoCode: code, promoDiscount: discount }),
 
-      // Computed total
+      // Computed total (full plan price)
       getTotal: () => {
-        const { plan, addons, hosting, promoDiscount } = get()
+        const { plan, addons, hosting, promoDiscount, customization } = get()
         let total = plan ? plan.price_pen : 0
+        // Page extra cost for Corporativa/Ecommerce
+        if (customization?.pagesExtra) total += customization.pagesExtra
         addons.forEach(a => { total += a.price_pen })
         if (hosting && hosting.price_pen) total += hosting.price_pen
         if (promoDiscount > 0) total = total * (1 - promoDiscount / 100)
         return Math.round(total * 100) / 100
+      },
+
+      // First payment amount (10% for phased plans, full for Kit Digital)
+      getFirstPayment: () => {
+        const { plan, getTotal } = get()
+        const total = getTotal()
+        if (!plan || !plan.payment_schedule) return total
+        const first = plan.payment_schedule[0]
+        return Math.round(total * first.pct / 100 * 100) / 100
       },
 
       // Save progress to Supabase (and localStorage via persist)
@@ -71,6 +102,7 @@ export const useCheckoutStore = create(
             hosting:       s.hosting,
             domain:        s.domain,
             addons:        s.addons,
+            customization: s.customization,
             currency:      s.currency,
             lang:          s.lang,
             promoCode:     s.promoCode,
@@ -103,8 +135,12 @@ export const useCheckoutStore = create(
       // Reset
       reset: () => set({
         plan: null, hosting: null, domain: null, addons: [],
+        customization: null,
         signatureDataUrl: null, signedAt: null, orderId: null,
+        signerFullName: '', signerDni: '', contractNumber: null, signerIp: null,
+        paymentMethod: null,
         promoCode: null, promoDiscount: 0,
+        kitDigitalOfferAccepted: false,
       }),
     }),
     {
@@ -114,11 +150,18 @@ export const useCheckoutStore = create(
         hosting:       s.hosting,
         domain:        s.domain,
         addons:        s.addons,
+        customization: s.customization,
         user:          s.user,
         currency:      s.currency,
         lang:          s.lang,
         promoCode:     s.promoCode,
         promoDiscount: s.promoDiscount,
+        contractNumber: s.contractNumber,
+        signerFullName: s.signerFullName,
+        signerDni:     s.signerDni,
+        orderId:       s.orderId,
+        paymentMethod: s.paymentMethod,
+        kitDigitalOfferAccepted: s.kitDigitalOfferAccepted,
       }),
     }
   )

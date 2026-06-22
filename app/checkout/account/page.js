@@ -46,7 +46,11 @@ function FieldError({ msg }) {
 
 export default function AccountPage() {
   const router = useRouter()
-  const { lang, setUser } = useCheckoutStore()
+  const { lang, setUser, plan } = useCheckoutStore()
+
+  function nextStep() {
+    return plan?.customize_step ? '/checkout/customize' : '/checkout/hosting'
+  }
   const tr = useTranslation(lang)
   const [tab, setTab] = useState('register')
 
@@ -99,9 +103,23 @@ export default function AccountPage() {
           phone: reg.phone,
           company: reg.company,
         })
-        setUser({ id: data.user.id, email: reg.email, name: reg.name })
+        setUser({ id: data.user.id, email: reg.email, name: reg.name, phone: reg.phone, company: reg.company })
+
+        // Sync to admin CRM (fire-and-forget — never block checkout)
+        fetch('/api/crm/sync-client', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_id: data.user.id,
+            name: reg.name,
+            email: reg.email,
+            phone: reg.phone,
+            company: reg.company,
+            source: 'Tienda Online',
+          }),
+        }).catch(() => {}) // silently ignore CRM errors
       }
-      router.push('/checkout/hosting')
+      router.push(nextStep())
     } catch (err) {
       setRegServerError(err.message || (lang === 'es' ? 'Error al crear la cuenta' : 'Error creating account'))
     } finally {
@@ -129,7 +147,7 @@ export default function AccountPage() {
       const user = data.user
       const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single()
       setUser({ id: user.id, email: user.email, name: profile?.full_name || user.email })
-      router.push('/checkout/hosting')
+      router.push(nextStep())
     } catch (err) {
       setLoginServerError(err.message || (lang === 'es' ? 'Error al iniciar sesión' : 'Error signing in'))
     } finally {
