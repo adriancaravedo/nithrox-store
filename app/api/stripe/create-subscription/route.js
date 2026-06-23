@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-04-10' })
-
 function supabase() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 }
@@ -11,6 +9,8 @@ function supabase() {
 export async function POST(request) {
   try {
     const { customer_id, payment_method_id, amount_pen, order_id, plan_name } = await request.json()
+
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-04-10' })
 
     // Attach payment method to customer
     await stripe.paymentMethods.attach(payment_method_id, { customer: customer_id })
