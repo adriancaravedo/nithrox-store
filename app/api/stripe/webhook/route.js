@@ -43,11 +43,42 @@ export async function POST(request) {
       const sub = event.data.object
       const orderId = sub.metadata?.order_id
       if (orderId) {
+        const isActive = sub.status === 'trialing' || sub.status === 'active'
         await sb.from('orders').update({
-          status: sub.status === 'trialing' || sub.status === 'active' ? 'active' : 'pending',
+          status: isActive ? 'active' : 'pending',
           payment_id: sub.id,
           validated_at: new Date().toISOString(),
         }).eq('id', orderId)
+
+        // Auto-provision 20i hosting for Kit Digital on first activation
+        if (event.type === 'customer.subscription.created' && isActive) {
+          try {
+            const { data: order } = await sb
+              .from('orders')
+              .select('plan_id, client_name, client_email, items, server_id')
+              .eq('id', orderId)
+              .single()
+
+            const isKitDigital = order?.plan_id === 'kit-digital' || order?.plan_id === 'kit_digital'
+            const domain = order?.items?.domain || sub.metadata?.domain
+
+            if (isKitDigital && domain && !order?.server_id) {
+              const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://checkout.nithrox.com'
+              await fetch(`${appUrl}/api/20i/create-hosting`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  order_id: orderId,
+                  domain,
+                  client_name: order.client_name,
+                  client_email: order.client_email,
+                }),
+              })
+            }
+          } catch (provisionErr) {
+            console.error('20i provisioning error (non-blocking):', provisionErr.message)
+          }
+        }
       }
       break
     }
