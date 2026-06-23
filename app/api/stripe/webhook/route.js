@@ -8,6 +8,92 @@ function supabase() {
   )
 }
 
+async function twentyiRequest(path, method = 'GET', body = null) {
+  const apiKey = process.env.TWENTYI_API_KEY
+  if (!apiKey) throw new Error('TWENTYI_API_KEY not set')
+  const encoded = Buffer.from(apiKey).toString('base64')
+  const base = process.env.TWENTYI_API_BASE || 'https://api.20i.com'
+  const res = await fetch(`${base}${path}`, {
+    method,
+    headers: { 'Authorization': `Bearer ${encoded}`, 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data?.message || `20i ${res.status}`)
+  return data
+}
+
+async function provisionHosting(sb, orderId, order) {
+  const domain = order?.items?.domain?.full || order?.items?.domain || null
+  if (!domain) {
+    console.log('[20i] No domain in order — skipping provisioning')
+    return
+  }
+
+  const cleanDomain = String(domain).replace(/^https?:\/\//, '').replace(/\/$/, '').toLowerCase()
+  const resellerId = process.env.TWENTYI_RESELLER_ID
+
+  let packageId = null
+  let cpanelUrl = 'https://stackcp.com'
+
+  if (resellerId && process.env.TWENTYI_API_KEY) {
+    try {
+      const result = await twentyiRequest(`/reseller/${resellerId}/addWeb`, 'POST', {
+        type: process.env.TWENTYI_PACKAGE_TYPE || 'shared',
+        domain_name: cleanDomain,
+        label: `Kit Digital - ${order.client_name || cleanDomain}`,
+      })
+      packageId = result?.result || result?.id || result
+      console.log('[20i] Package created:', packageId)
+    } catch (err) {
+      console.error('[20i] API error:', err.message)
+      // Continue — still create the server record as "pending"
+    }
+  } else {
+    console.warn('[20i] TWENTYI_RESELLER_ID or TWENTYI_API_KEY not set — saving server as pending')
+  }
+
+  // Always save a server record (even if 20i failed, shows "Configurando..." in portal)
+  const serverPayload = {
+    name: `Kit Digital — ${cleanDomain}`,
+    type: 'Shared',
+    ip: 'pendiente',
+    plan: 'Kit Digital Hosting',
+    provider: '20i',
+    domain: cleanDomain,
+    cpanel_url: cpanelUrl,
+    monthly_cost: 0,
+    currency: 'EUR',
+    status: packageId ? 'online' : 'pending',
+    cpu: 0, ram: 0, disk: 0, sites: 1,
+    client_email: order.client_email || null,
+    external_id: packageId ? String(packageId) : null,
+  }
+
+  let { data: server, error: serverError } = await sb.from('servers').insert(serverPayload).select('id').single()
+
+  // If extra columns don't exist yet, retry without them
+  if (serverError && (serverError.message?.includes('client_email') || serverError.message?.includes('external_id'))) {
+    console.warn('[servers] retrying without optional columns:', serverError.message)
+    const { name, type, ip, plan, provider, domain, cpanel_url, monthly_cost, currency, status, cpu, ram, disk, sites } = serverPayload
+    const fallback = await sb.from('servers').insert({ name, type, ip, plan, provider, domain, cpanel_url, monthly_cost, currency, status, cpu, ram, disk, sites }).select('id').single()
+    server = fallback.data
+    serverError = fallback.error
+  }
+
+  if (serverError) {
+    console.error('[servers] insert error:', serverError.message)
+    return
+  }
+
+  if (server?.id) {
+    // Link server to order using items JSON (avoids needing server_id column)
+    const updatedItems = { ...(order.items || {}), server_id: server.id, hosting_domain: cleanDomain }
+    await sb.from('orders').update({ items: updatedItems }).eq('id', orderId)
+    console.log('[20i] Server record created:', server.id)
+  }
+}
+
 export async function POST(request) {
   const body = await request.text()
   const sig  = request.headers.get('stripe-signature')
@@ -50,33 +136,23 @@ export async function POST(request) {
           validated_at: new Date().toISOString(),
         }).eq('id', orderId)
 
-        // Auto-provision 20i hosting for Kit Digital on first activation
+        // Provision 20i hosting for Kit Digital on first subscription creation
         if (event.type === 'customer.subscription.created' && isActive) {
           try {
             const { data: order } = await sb
               .from('orders')
-              .select('plan_id, client_name, client_email, items, server_id')
+              .select('plan_id, client_name, client_email, items')
               .eq('id', orderId)
               .single()
 
             const isKitDigital = order?.plan_id === 'kit-digital' || order?.plan_id === 'kit_digital'
-            const domain = order?.items?.domain || sub.metadata?.domain
+            const alreadyProvisioned = order?.items?.server_id
 
-            if (isKitDigital && domain && !order?.server_id) {
-              const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://checkout.nithrox.com'
-              await fetch(`${appUrl}/api/20i/create-hosting`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  order_id: orderId,
-                  domain,
-                  client_name: order.client_name,
-                  client_email: order.client_email,
-                }),
-              })
+            if (isKitDigital && !alreadyProvisioned) {
+              await provisionHosting(sb, orderId, order)
             }
-          } catch (provisionErr) {
-            console.error('20i provisioning error (non-blocking):', provisionErr.message)
+          } catch (err) {
+            console.error('[20i] provision error (non-blocking):', err.message)
           }
         }
       }
@@ -95,7 +171,6 @@ export async function POST(request) {
     case 'invoice.payment_failed': {
       const inv = event.data.object
       if (inv.subscription) {
-        // Find order by subscription id stored in payment_id
         await sb.from('orders').update({ status: 'payment_failed' })
           .eq('payment_id', inv.subscription)
       }
