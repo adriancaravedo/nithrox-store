@@ -127,6 +127,10 @@ export const useCheckoutStore = create(
             lang:          s.lang,
             promoCode:     s.promoCode,
             promoDiscount: s.promoDiscount,
+            user_name:     s.user?.name    || null,
+            user_email:    s.user?.email   || null,
+            user_phone:    s.user?.phone   || null,
+            user_company:  s.user?.company || null,
           },
         }
         const res = await fetch('/api/orders/save-draft', {

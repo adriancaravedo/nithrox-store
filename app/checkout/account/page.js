@@ -186,7 +186,7 @@ function DialCodeSelect({ value, onChange }) {
 
 export default function AccountPage() {
   const router = useRouter()
-  const { lang, setUser, plan } = useCheckoutStore()
+  const { lang, setUser, plan, saveProgress, sessionId } = useCheckoutStore()
 
   function nextStep() {
     return plan?.customize_step ? '/checkout/customize' : '/checkout/hosting'
@@ -245,12 +245,13 @@ export default function AccountPage() {
       if (data.user) {
         await supabase.from('profiles').upsert({
           id: data.user.id,
-          full_name: fullName,
+          name: fullName,
           email: reg.email,
-          phone: fullPhone,
-          company: reg.company,
         })
         setUser({ id: data.user.id, email: reg.email, name: fullName, phone: fullPhone, company: reg.company })
+
+        // Save draft immediately so admin sees the registration even if user abandons checkout
+        saveProgress?.('account').catch(() => {})
 
         fetch('/api/crm/sync-client', {
           method: 'POST',
@@ -291,8 +292,9 @@ export default function AccountPage() {
       const { data, error } = await supabase.auth.signInWithPassword({ email: login.email, password: login.password })
       if (error) { setLoginServerError(error.message); return }
       const user = data.user
-      const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single()
-      setUser({ id: user.id, email: user.email, name: profile?.full_name || user.email })
+      const { data: profile } = await supabase.from('profiles').select('name, phone, company').eq('id', user.id).single()
+      setUser({ id: user.id, email: user.email, name: profile?.name || user.email, phone: profile?.phone || null, company: profile?.company || null })
+      saveProgress?.('account').catch(() => {})
       router.push(nextStep())
     } catch (err) {
       setLoginServerError(err.message || (lang === 'es' ? 'Error al iniciar sesión' : 'Error signing in'))

@@ -1,19 +1,15 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { loadStripe } from '@stripe/stripe-js'
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { useCheckoutStore } from '@/store/checkout'
 import { useTranslation } from '@/lib/i18n'
 import { formatPrice } from '@/lib/data'
 import StepHeader from '@/components/checkout/StepHeader'
-import { Copy, Check, CreditCard, Info } from 'lucide-react'
+import { Copy, Check, Info } from 'lucide-react'
 
-const TABS = [
-  { id: 'stripe',   label: 'Tarjeta',       labelEn: 'Card',     icon: '💳' },
-  { id: 'izipay',   label: 'Izipay',        labelEn: 'Izipay',   icon: '🏦' },
-  { id: 'paypal',   label: 'PayPal',        labelEn: 'PayPal',   icon: '🅿️' },
-  { id: 'crypto',   label: 'Cripto',        labelEn: 'Crypto',   icon: '₿'  },
-  { id: 'transfer', label: 'Transferencia', labelEn: 'Transfer', icon: '🏧' },
-]
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
 
 const CRYPTOS = [
   { id: 'btc',  name: 'Bitcoin',  symbol: 'BTC', icon: '₿' },
@@ -22,22 +18,28 @@ const CRYPTOS = [
   { id: 'sol',  name: 'Solana',   symbol: 'SOL', icon: '◎' },
 ]
 
-function formatCardNumber(val) {
-  return val.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim()
-}
-function formatExpiry(val) {
-  const clean = val.replace(/\D/g, '').slice(0, 4)
-  return clean.length > 2 ? clean.slice(0, 2) + '/' + clean.slice(2) : clean
-}
-
-const AUTO_METHODS  = ['stripe', 'izipay', 'paypal']
-const MANUAL_METHODS = ['transfer', 'crypto']
+const AUTO_METHODS   = ['stripe', 'izipay', 'paypal']
 
 export default function PaymentPage() {
+  const store = useCheckoutStore()
+  const { lang, currency, plan } = store
+  const isKitDigital = plan?.id === 'kit-digital'
+
+  return (
+    <Elements stripe={stripePromise} options={{ locale: lang === 'es' ? 'es' : 'en' }}>
+      <PaymentInner isKitDigital={isKitDigital} />
+    </Elements>
+  )
+}
+
+function PaymentInner({ isKitDigital }) {
   const router = useRouter()
+  const stripe = useStripe()
+  const elements = useElements()
   const {
     lang, currency, plan, addons, hosting, domain, user,
-    signatureDataUrl, getTotal, getFirstPayment, setOrderId, setPaymentMethod,
+    signatureDataUrl, kitDigitalOfferAccepted,
+    getTotal, getFirstPayment, setOrderId, setPaymentMethod,
   } = useCheckoutStore()
 
   const total        = getTotal()
@@ -45,16 +47,21 @@ export default function PaymentPage() {
   const isPhased     = !!(plan?.payment_schedule)
   const payingNow    = isPhased ? firstPayment : total
 
-  const [activeTab, setActiveTab]   = useState('stripe')
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState('')
+  const TABS = [
+    { id: 'stripe',   label: 'Tarjeta',       labelEn: 'Card',     icon: '💳' },
+    { id: 'crypto',   label: 'Cripto',        labelEn: 'Crypto',   icon: '₿'  },
+    { id: 'transfer', label: 'Transferencia', labelEn: 'Transfer', icon: '🏧' },
+  ]
 
-  const [card, setCard] = useState({ number: '', expiry: '', cvc: '', name: '' })
+  const [activeTab, setActiveTab] = useState('stripe')
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState('')
+  const [cardReady, setCardReady] = useState(false)
 
-  const [selectedCrypto, setSelectedCrypto]     = useState(null)
-  const [cryptoPayment, setCryptoPayment]       = useState(null)
-  const [cryptoCountdown, setCryptoCountdown]   = useState(900)
-  const [copied, setCopied]                     = useState(false)
+  const [selectedCrypto, setSelectedCrypto]   = useState(null)
+  const [cryptoPayment, setCryptoPayment]     = useState(null)
+  const [cryptoCountdown, setCryptoCountdown] = useState(900)
+  const [copied, setCopied]                   = useState(false)
 
   const [voucherFile, setVoucherFile] = useState(null)
   const fileRef = useRef(null)
@@ -70,10 +77,8 @@ export default function PaymentPage() {
     return () => clearInterval(interval)
   }, [cryptoPayment])
 
-  function countdownStr(seconds) {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0')
-    const s = (seconds % 60).toString().padStart(2, '0')
-    return `${m}:${s}`
+  function countdownStr(s) {
+    return `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`
   }
 
   function goToThanks(orderId, method) {
@@ -104,6 +109,7 @@ export default function PaymentPage() {
         total_pen:          total,
         first_payment_pen:  payingNow,
         is_phased:          isPhased,
+        kit_digital_trial:  isKitDigital && kitDigitalOfferAccepted,
         currency,
         lang,
         ...extraData,
@@ -114,19 +120,79 @@ export default function PaymentPage() {
     return data.orderId
   }
 
+  // ── STRIPE ─────────────────────────────────────────────────
   async function handleStripeSubmit(e) {
     e.preventDefault()
+    if (!stripe || !elements) return
     setError('')
     setLoading(true)
+
     try {
-      const piRes = await fetch('/api/stripe/create-payment-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_pen: payingNow, currency, customer_email: user?.email }),
-      })
-      const piData = await piRes.json()
-      const orderId = await createOrder('stripe', { payment_id: piData.clientSecret })
-      goToThanks(orderId, 'stripe')
+      const cardElement = elements.getElement(CardElement)
+
+      if (isKitDigital) {
+        // ── KIT DIGITAL: SetupIntent → Subscription with 31-day trial ──
+        const siRes = await fetch('/api/stripe/setup-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ customer_email: user?.email, customer_name: user?.name }),
+        })
+        const siData = await siRes.json()
+        if (siData.error) throw new Error(siData.error)
+
+        // Confirm card setup (verifies card without charging)
+        const { setupIntent, error: setupErr } = await stripe.confirmCardSetup(siData.clientSecret, {
+          payment_method: {
+            card: cardElement,
+            billing_details: { name: user?.name, email: user?.email },
+          },
+        })
+        if (setupErr) throw new Error(setupErr.message)
+
+        // Create order in DB
+        const orderId = await createOrder('stripe', { stripe_customer_id: siData.customerId })
+
+        // Create annual subscription with trial
+        const subRes = await fetch('/api/stripe/create-subscription', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id:       siData.customerId,
+            payment_method_id: setupIntent.payment_method,
+            amount_pen:        total,
+            order_id:          orderId,
+            plan_name:         plan?.name,
+          }),
+        })
+        const subData = await subRes.json()
+        if (subData.error) throw new Error(subData.error)
+
+        goToThanks(orderId, 'stripe')
+
+      } else {
+        // ── REGULAR PLAN: PaymentIntent → immediate charge ──
+        const orderId = await createOrder('stripe')
+
+        const piRes = await fetch('/api/stripe/create-payment-intent', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount_pen: payingNow, currency, customer_email: user?.email, order_id: orderId }),
+        })
+        const piData = await piRes.json()
+        if (piData.error) throw new Error(piData.error)
+
+        // Actually charge the card
+        const { paymentIntent, error: payErr } = await stripe.confirmCardPayment(piData.clientSecret, {
+          payment_method: {
+            card: cardElement,
+            billing_details: { name: user?.name, email: user?.email },
+          },
+        })
+        if (payErr) throw new Error(payErr.message)
+        if (paymentIntent.status !== 'succeeded') throw new Error('El pago no fue aprobado')
+
+        goToThanks(orderId, 'stripe')
+      }
     } catch (err) {
       setError(err.message)
     } finally {
@@ -134,46 +200,7 @@ export default function PaymentPage() {
     }
   }
 
-  async function handleIzipay() {
-    setError('')
-    setLoading(true)
-    try {
-      const res = await fetch('/api/izipay/create-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_pen: payingNow, customer_email: user?.email }),
-      })
-      const data = await res.json()
-      const orderId = await createOrder('izipay')
-      if (data.redirectUrl) window.location.href = data.redirectUrl
-      else goToThanks(orderId, 'izipay')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handlePayPal() {
-    setError('')
-    setLoading(true)
-    try {
-      const res = await fetch('/api/paypal/create-order', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_pen: payingNow, currency }),
-      })
-      const data = await res.json()
-      const orderId = await createOrder('paypal', { payment_id: data.id })
-      if (data.approvalUrl) window.location.href = data.approvalUrl
-      else goToThanks(orderId, 'paypal')
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // ── CRYPTO ─────────────────────────────────────────────────
   async function handleCryptoSelect(crypto) {
     setSelectedCrypto(crypto)
     setCryptoPayment(null)
@@ -181,13 +208,15 @@ export default function PaymentPage() {
     setError('')
     setLoading(true)
     try {
+      const orderId = await createOrder('crypto')
       const res = await fetch('/api/nowpayments/create-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount_pen: payingNow, currency_code: crypto.id }),
+        body: JSON.stringify({ amount_pen: payingNow, currency_code: crypto.id, order_id: orderId }),
       })
       const data = await res.json()
-      setCryptoPayment(data)
+      if (data.error) throw new Error(data.error)
+      setCryptoPayment({ ...data, _orderId: orderId })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -198,7 +227,8 @@ export default function PaymentPage() {
   async function handleCryptoConfirm() {
     setLoading(true)
     try {
-      const orderId = await createOrder('crypto', { payment_id: cryptoPayment?.payment_id })
+      const orderId = cryptoPayment?._orderId
+      if (!orderId) throw new Error('No order ID')
       goToThanks(orderId, 'crypto')
     } catch (err) {
       setError(err.message)
@@ -214,6 +244,7 @@ export default function PaymentPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // ── TRANSFER ───────────────────────────────────────────────
   async function handleTransferSubmit() {
     if (!voucherFile) {
       setError(lang === 'es' ? 'Por favor sube el comprobante de pago.' : 'Please upload your payment receipt.')
@@ -236,67 +267,80 @@ export default function PaymentPage() {
     }
   }
 
-  const tabBtnStyle = (active) => ({
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '8px 14px',
-    border: 'none',
-    borderRadius: 9,
-    fontSize: 12,
-    fontWeight: 700,
-    cursor: 'pointer',
+  const tabBtn = (active) => ({
+    display: 'flex', alignItems: 'center', gap: 6,
+    padding: '8px 14px', border: 'none', borderRadius: 9,
+    fontSize: 12, fontWeight: 700, cursor: 'pointer',
     background: active ? 'var(--orange)' : 'transparent',
     color: active ? 'white' : 'var(--text-2)',
-    transition: 'all 0.15s',
-    whiteSpace: 'nowrap',
+    transition: 'all 0.15s', whiteSpace: 'nowrap',
   })
 
   const primaryBtn = (disabled) => ({
-    width: '100%',
-    padding: '14px',
+    width: '100%', padding: '14px',
     background: disabled ? 'var(--border)' : 'var(--orange)',
     color: disabled ? 'var(--text-3)' : 'white',
-    border: 'none',
-    borderRadius: 10,
-    fontSize: 14,
-    fontWeight: 700,
+    border: 'none', borderRadius: 10, fontSize: 14, fontWeight: 700,
     cursor: disabled ? 'not-allowed' : 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    marginTop: 8,
-    transition: 'background 0.15s',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginTop: 8, transition: 'background 0.15s',
   })
+
+  const cardElementOptions = {
+    style: {
+      base: {
+        fontSize: '15px',
+        fontFamily: 'inherit',
+        color: 'var(--text)',
+        '::placeholder': { color: 'var(--text-3)' },
+        iconColor: 'var(--text-2)',
+      },
+      invalid: { color: '#dc2626', iconColor: '#dc2626' },
+    },
+    hidePostalCode: true,
+  }
 
   return (
     <div className="slide-in" style={{ maxWidth: 560, margin: '0 auto' }}>
       <StepHeader
         title={lang === 'es' ? 'Elige cómo pagar' : 'Choose how to pay'}
         subtitle={isPhased
-          ? (lang === 'es' ? `Pago inicial — Fase 1` : `Initial payment — Phase 1`)
-          : (lang === 'es' ? 'Pago único' : 'One-time payment')
+          ? (lang === 'es' ? 'Pago inicial — Fase 1' : 'Initial payment — Phase 1')
+          : isKitDigital && kitDigitalOfferAccepted
+            ? (lang === 'es' ? 'Suscripción anual · 1er mes gratis' : 'Annual subscription · 1st month free')
+            : (lang === 'es' ? 'Pago único' : 'One-time payment')
         }
       />
 
-      {/* Phased payment info banner */}
-      {isPhased && (
+      {/* Kit Digital trial banner */}
+      {isKitDigital && kitDigitalOfferAccepted && (
         <div style={{
-          background: 'rgba(232,68,30,0.06)',
-          border: '1px solid rgba(232,68,30,0.2)',
-          borderRadius: 12,
-          padding: '12px 16px',
-          marginBottom: 20,
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 10,
+          background: 'rgba(232,68,30,0.06)', border: '1px solid rgba(232,68,30,0.2)',
+          borderRadius: 12, padding: '12px 16px', marginBottom: 20,
+          display: 'flex', alignItems: 'flex-start', gap: 10,
         }}>
           <Info size={14} color="var(--orange)" style={{ marginTop: 2, flexShrink: 0 }} />
           <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
             {lang === 'es'
-              ? <>Hoy pagas solo el <strong style={{ color: 'var(--orange)' }}>10% → {formatPrice(payingNow, currency)}</strong> para iniciar el proyecto. El total del plan es {formatPrice(total, currency)}, dividido en 4 fases.</>
-              : <>Today you only pay <strong style={{ color: 'var(--orange)' }}>10% → {formatPrice(payingNow, currency)}</strong> to start the project. The total plan is {formatPrice(total, currency)}, split into 4 phases.</>
+              ? <>Tu tarjeta no será cobrada hoy. El primer cobro de <strong style={{ color: 'var(--orange)' }}>{formatPrice(total, currency)}/año</strong> se realizará en 31 días.</>
+              : <>Your card will not be charged today. The first charge of <strong style={{ color: 'var(--orange)' }}>{formatPrice(total, currency)}/year</strong> will happen in 31 days.</>
+            }
+          </div>
+        </div>
+      )}
+
+      {/* Phased payment banner */}
+      {isPhased && (
+        <div style={{
+          background: 'rgba(232,68,30,0.06)', border: '1px solid rgba(232,68,30,0.2)',
+          borderRadius: 12, padding: '12px 16px', marginBottom: 20,
+          display: 'flex', alignItems: 'flex-start', gap: 10,
+        }}>
+          <Info size={14} color="var(--orange)" style={{ marginTop: 2, flexShrink: 0 }} />
+          <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+            {lang === 'es'
+              ? <>Hoy pagas solo el <strong style={{ color: 'var(--orange)' }}>10% → {formatPrice(payingNow, currency)}</strong> para iniciar. Total del plan: {formatPrice(total, currency)} en 4 fases.</>
+              : <>Today you only pay <strong style={{ color: 'var(--orange)' }}>10% → {formatPrice(payingNow, currency)}</strong> to start. Plan total: {formatPrice(total, currency)} in 4 phases.</>
             }
           </div>
         </div>
@@ -304,37 +348,36 @@ export default function PaymentPage() {
 
       {/* Amount display */}
       <div style={{
-        background: 'var(--text)',
-        borderRadius: 12,
-        padding: '14px 20px',
-        marginBottom: 20,
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        background: 'var(--text)', borderRadius: 12, padding: '14px 20px', marginBottom: 20,
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-            {lang === 'es' ? 'Pagas hoy' : 'You pay today'}
+            {isKitDigital && kitDigitalOfferAccepted
+              ? (lang === 'es' ? 'Pagas hoy' : 'You pay today')
+              : (lang === 'es' ? 'Pagas hoy' : 'You pay today')
+            }
           </div>
           {isPhased && (
             <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
               {lang === 'es' ? 'Fase 1 de 4' : 'Phase 1 of 4'}
             </div>
           )}
+          {isKitDigital && kitDigitalOfferAccepted && (
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+              {lang === 'es' ? 'Luego S/ ' + total + '/año' : 'Then S/ ' + total + '/year'}
+            </div>
+          )}
         </div>
         <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--orange)', letterSpacing: '-0.02em' }}>
-          {formatPrice(payingNow, currency)}
+          {isKitDigital && kitDigitalOfferAccepted ? 'S/ 0.00' : formatPrice(payingNow, currency)}
         </div>
       </div>
 
       {/* Tab selector */}
       <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', borderRadius: 12, padding: 4, marginBottom: 20, overflowX: 'auto' }}>
         {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => { setActiveTab(tab.id); setError('') }}
-            style={tabBtnStyle(activeTab === tab.id)}
-          >
+          <button key={tab.id} onClick={() => { setActiveTab(tab.id); setError('') }} style={tabBtn(activeTab === tab.id)}>
             <span>{tab.icon}</span>
             {lang === 'es' ? tab.label : tab.labelEn}
           </button>
@@ -344,86 +387,60 @@ export default function PaymentPage() {
       {/* Tab panels */}
       <div style={{ background: 'var(--surface)', border: '1.5px solid var(--border)', borderRadius: 16, padding: 24 }}>
 
-        {/* ── Stripe ── */}
+        {/* ── STRIPE ── */}
         {activeTab === 'stripe' && (
-          <form onSubmit={handleStripeSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
+          <form onSubmit={handleStripeSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
               {lang === 'es' ? 'Tarjeta de crédito / débito' : 'Credit / Debit card'}
             </div>
+
+            {/* Stripe Card Element */}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>
-                {lang === 'es' ? 'Nombre en la tarjeta' : 'Name on card'}
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 8 }}>
+                {lang === 'es' ? 'Datos de la tarjeta' : 'Card details'}
               </label>
-              <input type="text" required value={card.name} onChange={e => setCard(c => ({ ...c, name: e.target.value }))} placeholder="Juan García"
-                style={{ width: '100%', padding: '12px 16px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 14, fontFamily: 'inherit', background: 'var(--surface)', color: 'var(--text)', outline: 'none' }}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>
-                {lang === 'es' ? 'Número de tarjeta' : 'Card number'}
-              </label>
-              <input type="text" required value={card.number} onChange={e => setCard(c => ({ ...c, number: formatCardNumber(e.target.value) }))} placeholder="4242 4242 4242 4242" maxLength={19}
-                style={{ width: '100%', padding: '12px 16px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 14, fontFamily: 'monospace', letterSpacing: '0.1em', background: 'var(--surface)', color: 'var(--text)', outline: 'none' }}
-              />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>{lang === 'es' ? 'Expiración' : 'Expiry'}</label>
-                <input type="text" required value={card.expiry} onChange={e => setCard(c => ({ ...c, expiry: formatExpiry(e.target.value) }))} placeholder="MM/AA" maxLength={5}
-                  style={{ width: '100%', padding: '12px 16px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 14, fontFamily: 'monospace', background: 'var(--surface)', color: 'var(--text)', outline: 'none' }}
+              <div style={{
+                padding: '14px 16px',
+                border: '1.5px solid var(--border)',
+                borderRadius: 10,
+                background: 'var(--surface)',
+              }}>
+                <CardElement
+                  options={cardElementOptions}
+                  onChange={e => {
+                    setCardReady(e.complete)
+                    if (e.error) setError(e.error.message)
+                    else setError('')
+                  }}
                 />
               </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>CVC</label>
-                <input type="text" required value={card.cvc} onChange={e => setCard(c => ({ ...c, cvc: e.target.value.replace(/\D/g, '').slice(0, 4) }))} placeholder="123" maxLength={4}
-                  style={{ width: '100%', padding: '12px 16px', border: '1.5px solid var(--border)', borderRadius: 10, fontSize: 14, fontFamily: 'monospace', background: 'var(--surface)', color: 'var(--text)', outline: 'none' }}
-                />
-              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6 }}>
+                🔒 {lang === 'es' ? 'Tus datos son procesados de forma segura por Stripe' : 'Your data is securely processed by Stripe'}
+              </p>
             </div>
+
+            {isKitDigital && kitDigitalOfferAccepted && (
+              <div style={{ fontSize: 13, color: 'var(--text-2)', background: 'var(--surface-2)', borderRadius: 10, padding: '10px 14px' }}>
+                {lang === 'es'
+                  ? '🎁 Tu suscripción iniciará con 31 días gratis. No se realizará ningún cobro hoy.'
+                  : '🎁 Your subscription will start with 31 free days. No charge will be made today.'}
+              </div>
+            )}
+
             {error && <ErrorBox msg={error} />}
-            <button type="submit" disabled={loading} style={primaryBtn(loading)}>
-              {loading ? <><span className="spinner" />{lang === 'es' ? 'Procesando...' : 'Processing...'}</> : `${lang === 'es' ? 'Pagar' : 'Pay'} ${formatPrice(payingNow, currency)}`}
+
+            <button type="submit" disabled={loading || !stripe || !cardReady} style={primaryBtn(loading || !stripe || !cardReady)}>
+              {loading
+                ? <><span className="spinner" />{lang === 'es' ? 'Procesando...' : 'Processing...'}</>
+                : isKitDigital && kitDigitalOfferAccepted
+                  ? (lang === 'es' ? 'Activar suscripción gratis →' : 'Activate free subscription →')
+                  : `${lang === 'es' ? 'Pagar' : 'Pay'} ${formatPrice(payingNow, currency)} →`
+              }
             </button>
           </form>
         )}
 
-        {/* ── Izipay ── */}
-        {activeTab === 'izipay' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '12px 0' }}>
-            <div style={{ width: 72, height: 72, background: 'rgba(37,99,235,0.08)', borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>🏦</div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-                {lang === 'es' ? 'Tarjetas peruanas Visa, Mastercard, Amex' : 'Peruvian cards Visa, Mastercard, Amex'}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
-                {lang === 'es' ? 'Serás redirigido a la pasarela de Izipay.' : 'You will be redirected to Izipay.'}
-              </div>
-            </div>
-            {error && <ErrorBox msg={error} />}
-            <button onClick={handleIzipay} disabled={loading} style={{ ...primaryBtn(loading), background: '#2563EB', width: '100%' }}>
-              {loading ? <><span className="spinner" />...</> : `${lang === 'es' ? 'Pagar con Izipay' : 'Pay with Izipay'} — ${formatPrice(payingNow, currency)}`}
-            </button>
-          </div>
-        )}
-
-        {/* ── PayPal ── */}
-        {activeTab === 'paypal' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '12px 0' }}>
-            <div style={{ width: 72, height: 72, background: 'rgba(0,112,186,0.08)', borderRadius: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36 }}>🅿️</div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>PayPal</div>
-              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
-                {lang === 'es' ? 'Paga de forma rápida y segura con tu cuenta PayPal.' : 'Pay quickly and securely with your PayPal account.'}
-              </div>
-            </div>
-            {error && <ErrorBox msg={error} />}
-            <button onClick={handlePayPal} disabled={loading} style={{ ...primaryBtn(loading), background: '#0070BA', width: '100%' }}>
-              {loading ? <><span className="spinner" />...</> : `PayPal — ${formatPrice(payingNow, currency)}`}
-            </button>
-          </div>
-        )}
-
-        {/* ── Crypto ── */}
+        {/* ── CRYPTO ── */}
         {activeTab === 'crypto' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
@@ -438,8 +455,7 @@ export default function PaymentPage() {
                       style={{
                         padding: '14px 16px',
                         border: selectedCrypto?.id === c.id ? '2px solid var(--orange)' : '1.5px solid var(--border)',
-                        borderRadius: 12,
-                        background: selectedCrypto?.id === c.id ? 'var(--orange-tint)' : 'var(--surface)',
+                        borderRadius: 12, background: selectedCrypto?.id === c.id ? 'var(--orange-tint)' : 'var(--surface)',
                         cursor: loading ? 'not-allowed' : 'pointer',
                         opacity: loading && selectedCrypto?.id !== c.id ? 0.5 : 1,
                         display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', transition: 'all 0.15s',
@@ -455,7 +471,7 @@ export default function PaymentPage() {
                 {loading && (
                   <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                     <span className="spinner spinner-dark" />
-                    {lang === 'es' ? 'Generando dirección de pago...' : 'Generating payment address...'}
+                    {lang === 'es' ? 'Generando dirección...' : 'Generating address...'}
                   </div>
                 )}
               </>
@@ -477,10 +493,10 @@ export default function PaymentPage() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, color: 'var(--text-2)', padding: '4px 0' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: cryptoCountdown > 0 ? 'var(--orange)' : 'var(--red)', animation: cryptoCountdown > 0 ? 'pulse 1.5s infinite' : 'none' }} />
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: cryptoCountdown > 0 ? 'var(--orange)' : '#dc2626', animation: cryptoCountdown > 0 ? 'pulse 1.5s infinite' : 'none' }} />
                     {lang === 'es' ? 'Esperando confirmación...' : 'Waiting for confirmation...'}
                   </div>
-                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: cryptoCountdown < 60 ? 'var(--red)' : 'var(--text)' }}>{countdownStr(cryptoCountdown)}</span>
+                  <span style={{ fontFamily: 'monospace', fontWeight: 700, color: cryptoCountdown < 60 ? '#dc2626' : 'var(--text)' }}>{countdownStr(cryptoCountdown)}</span>
                 </div>
                 <button onClick={handleCryptoConfirm} disabled={loading} style={primaryBtn(loading)}>
                   {loading ? <><span className="spinner" />...</> : (lang === 'es' ? 'Ya transferí, continuar →' : 'Already sent, continue →')}
@@ -491,14 +507,11 @@ export default function PaymentPage() {
           </div>
         )}
 
-        {/* ── Transfer ── */}
+        {/* ── TRANSFER ── */}
         {activeTab === 'transfer' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
               {lang === 'es' ? 'Transferencia bancaria' : 'Bank Transfer'}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
-              {lang === 'es' ? 'Transfiere el monto exacto y sube el comprobante.' : 'Transfer the exact amount and upload your receipt.'}
             </div>
             <div style={{ background: 'var(--surface-2)', border: '1.5px solid var(--border)', borderRadius: 12, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {[
@@ -531,7 +544,7 @@ export default function PaymentPage() {
                 {voucherFile ? (
                   <div>
                     <div style={{ fontSize: 24, marginBottom: 6 }}>📄</div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--green)' }}>{voucherFile.name}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a' }}>{voucherFile.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>({(voucherFile.size / 1024).toFixed(0)} KB)</div>
                   </div>
                 ) : (
@@ -546,17 +559,14 @@ export default function PaymentPage() {
             </div>
             {error && <ErrorBox msg={error} />}
             <button onClick={handleTransferSubmit} disabled={loading || !voucherFile} style={primaryBtn(loading || !voucherFile)}>
-              {loading ? <><span className="spinner" />{lang === 'es' ? 'Enviando...' : 'Sending...'}</> : (lang === 'es' ? 'Enviar comprobante y continuar' : 'Send receipt and continue')}
+              {loading ? <><span className="spinner" />{lang === 'es' ? 'Enviando...' : 'Sending...'}</> : (lang === 'es' ? 'Enviar comprobante →' : 'Send receipt →')}
             </button>
           </div>
         )}
       </div>
 
       <div style={{ marginTop: 20, textAlign: 'center' }}>
-        <button
-          onClick={() => router.push('/checkout/contract')}
-          style={{ fontSize: 13, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-        >
+        <button onClick={() => router.push('/checkout/contract')} style={{ fontSize: 13, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
           ← {lang === 'es' ? 'Atrás' : 'Back'}
         </button>
       </div>
@@ -566,7 +576,7 @@ export default function PaymentPage() {
 
 function ErrorBox({ msg }) {
   return (
-    <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: 'var(--red)', fontWeight: 500 }}>
+    <div style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', borderRadius: 10, padding: '10px 14px', fontSize: 13, color: '#dc2626', fontWeight: 500 }}>
       {msg}
     </div>
   )
