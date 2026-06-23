@@ -3,8 +3,11 @@ import Stripe from 'stripe'
 
 export async function POST(request) {
   try {
+    const key = process.env.STRIPE_SECRET_KEY
+    if (!key) return NextResponse.json({ error: 'STRIPE_SECRET_KEY not configured' }, { status: 500 })
+
     const { customer_email, customer_name } = await request.json()
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-04-10' })
+    const stripe = new Stripe(key, { apiVersion: '2024-04-10' })
 
     // Get or create Stripe customer
     let customer
